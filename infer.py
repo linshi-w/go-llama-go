@@ -7,6 +7,14 @@ from transformers import AutoTokenizer
 
 import llama
 
+
+def _synchronize(device):
+    if device == "cuda":
+        torch.cuda.synchronize()
+    elif device == "npu":
+        torch.npu.synchronize()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Text generation with a Llama model.")
 
@@ -28,7 +36,7 @@ if __name__ == "__main__":
         "--device",
         type=str,
         default="cpu",
-        help='Device to use for inference (e.g., "cuda", "cpu").',
+        help='Device to use for inference (e.g., "cuda", "npu", "cpu").',
     )
     parser.add_argument(
         "--num-warmup-iterations",
@@ -52,7 +60,12 @@ if __name__ == "__main__":
     num_warmup_iterations = args.num_warmup_iterations
     num_profiling_iterations = args.num_profiling_iterations
 
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    if device == "npu":
+        import torch_npu
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(device)
 
@@ -65,8 +78,7 @@ if __name__ == "__main__":
 
         texts.append(tokenizer.batch_decode(outputs, skip_special_tokens=True))
 
-    if device == "cuda":
-        torch.cuda.synchronize()
+    _synchronize(device)
 
     elapsed_time = 0
 
@@ -75,8 +87,7 @@ if __name__ == "__main__":
 
         outputs = model.generate(inputs.input_ids, max_new_tokens=max_new_tokens)
 
-        if device == "cuda":
-            torch.cuda.synchronize()
+        _synchronize(device)
 
         end_time = time.time()
 
